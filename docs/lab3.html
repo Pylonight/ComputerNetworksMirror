@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <title>CSCI-551: Computer Networking</title>
+
+  <link rel="stylesheet" href="./resources/style.css">
+</head>
+
+<body>
+  <header id="header">
+    <hgroup>
+      <h1 id="site-title">
+        <span class="full">CSCI-551: Computer Networking</span>
+        <span class="hidden-print short"></span>
+      </h1>
+    </hgroup>
+  </header>
+
+  <nav id="navbar">
+    <nav class="navbar navbar-default">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-navbar-collapse-1">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+        </div>
+
+        <div class="collapse navbar-collapse" id="bs-navbar-collapse-1">
+          <ul class="nav navbar-nav">
+            <li class="">
+              <a href="lab1.html">Lab 1</a>
+            </li>
+            <li class="">
+              <a href="lab2.html">Lab 2</a>
+            </li>
+            <li class="">
+              <a href="lab3.html">Lab 3</a>
+            </li>
+            <li class="">
+              <a href="lab4a.html">Lab 4a</a>
+            </li>
+            <li class="">
+              <a href="lab4b.html">Lab 4b</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+  </nav>
+
+  <div class="container-fluid">
+    <div class="row-fluid">
+      <div id="main" class="col-xs-12 col-sm-12">
+        <article>
+
+
+
+  <section>
+    <h1>Lab 3: Build Your Own Network</h1>
+    <div class="row">
+      <div class="col-md-12">
+        <h2 id="overview"><a class="header-link" href="#highleveldesign"><i class="fa fa-link"></i></a>Configuration</h2>
+
+        <p>In this lab, the goal is to combine the first two labs together and re-configure them, and debug. So generally speaking, many scripts can be reused, such as <code class="highlighter-rouge">set_host.sh</code> and configuration files from lab 2. This ensures routing inside AS 2 works well, but comes with some modification on the configurations, as <span class="label label-danger">NEWY</span> is out. In terms of AS 4, the static router should be fine without any change in implementation. Finally, configure <span class="label label-danger">NEWY</span> and <span class="label label-danger">WASH</span> to be eBGP peers and indicate each of them to advertise necessay prefix respectively. Some certain details are as follows:</p>
+
+      </div>
+    </div>
+
+    <ul>
+      <li>
+        <p>AS numbers are not changed. Subnet and address of server2 are not changed. Instead, subnet of <span class="label label-primary">SEAT-host</span> is changed to be <code class="highlighter-rouge">2.109.1.0/24</code>. As a result, there is no need to configure server1 and server2, as their IPs and gateways are already configured, which can be examined by command <code class="highlighter-rouge">ifconfig -a</code>.</p>
+      </li>
+
+      <li>
+        <p>The way routers interact with each other is different between after topology in the view of OSPF changes and topology in the view of BGP changes. This is decided by the mechanism of these to protocols. OSPF indicates routers announce their LSAs by flooding, while BGP indicates routers inform their peers of the updates by TCP.</p>
+
+        <p>To be more detailed, as for OSPF, whether a router starts to advertise for a new subnet, or stops to advertise for a centain subnet, LSUs are sent in a flood manner immediately, with a multicase address 224.0.0.5. All routers in the same area (in our scenario the area id is 0.0.0.0 as the backbone area) will grab the updates, forward them, install them into LSD and recalculate the paths. These can be observed by performing <code class="highlighter-rouge">tcpdump</code> on related router, aka type <code class="highlighter-rouge">tcpdump -i any ip proto ospf -l</code> after executing <code class="highlighter-rouge">./go_to.sh &lt;router&gt;</code> to access certain router. In contrast, BGP announcements and withdraws are sent via TCP, in an end-to-end manner. And, BGP withdraws are notified immediately, but not for announcements. Announcements are not sent before MinRouteAdver timer elapses, and shorter for iBGP while longer for eBGP. These can be observed by command <code class="highlighter-rouge">tcpdump -i any tcp port bgp -l</code>. There are verifications of expected behaviors.</p>
+      </li>
+
+      <li>
+        <p>In terms of BGP setting up, <code class="highlighter-rouge">remote-as</code> indicates whether it is an iBGP peer/peer-group or eBGP peer/peer-group. For iBGP sessions, <code class="highlighter-rouge">next-hop-self</code> is very improtant as this indicates, when a iBGP router advertises a prefix learned from eBGP, via iBGP to its iBGP neighbors, it will change the next-hop to itself. Otherwise, if its neighbors do not have a route to the original next-hop(and high chances are), neighbors will not be able to keep the prefix. Complete form: <code class="highlighter-rouge">neighbor &lt;peer[group]&gt; remote-as &lt;AS number&gt;</code>, <code class="highlighter-rouge">neighbor &lt;peer[group]&gt; next-hop-self</code>.</p>
+
+        <p>For all BGP sessions, <code class="highlighter-rouge">update-source</code> is essential. Similar to OSPF, quagga will automatically choose a bgp-router-id for a BGP-enabled router, which is always the greatest interface address of the router. Of course one can change the id but the better way is to override it by allocating <code class="highlighter-rouge">update-source</code> to each peer/peer-group, as long as specified source, says SIP, is one of the routher's interface. When configuring its peers, this SIP is the identifier for it. Btw, quagga will also automatically choose a ospf-router-id but it is not one of router's interface addresses. And it is not recommended to modify it to be one of router's interface addresses. Complete form: <code class="highlighter-rouge">neighbor &lt;peer[group]&gt; update-source &lt;IP&gt;</code>.</p>
+
+        <p>It saves a lot of time and energy using <code class="highlighter-rouge">peer-group</code> to cop with tedious iBGP peers. Complete form: <code class="highlighter-rouge">neighbor &lt;group name&gt; peer-group</code>.</p>
+      </li>
+
+      <li>
+        <p>Except for absence of router <span class="label label-danger">NEWY</span>, and slight changes on router <span class="label label-danger">SEAT</span> and its subnets, there are nothing different from OSPF configuraion in lab 2.</p>
+      </li>
+
+      <li>
+        <p>When configuring OSPF, it should be limited inside AS 2, as OSPF should not be configured for inter-AS link. If we do so, it's a violation to the introduction of BGP. Actually we do not need OSPF configured for inter-AS links as, inter-AS links are always negotiated, routing on them are always manually configured along with BGP the protocol.</p>
+      </li>
+
+      <li>
+        <p>A logically correct workflow should be configuring AS 2 and AS 4 respectively, then testing and debugging seperatly. Then comes to eBGP and test across the border. The principle module by module and finally the whole always plays a role.</p>
+      </li>
+    </ul>
+
+    <h2 id="implementation-details"><a class="header-link" href="#implementation-details"><i class="fa fa-link"></i></a>Unexpected Scenarios</h2>
+
+    <p>There are several WEIRD scenarios, for example <code class="highlighter-rouge">traceroute</code> from <span class="label label-primary">server1</span> or <span class="label label-primary">server2</span> is really slow, and some problems related to <code class="highlighter-rouge">ping</code> certain interfaces.</p>
+
+    <ul>
+      <li>
+        <p>Too slow <code class="highlighter-rouge">traceroute</code> from <span class="label label-primary">server1</span> or <span class="label label-primary">server2</span>. Proofs are as follows:</p>
+        <p>Screenshots of <code class="highlighter-rouge">traceroute</code> results from <span class="label label-primary">server2</span> to <span class="label label-primary">server1</span>:</p>
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-16%2022%3A40%3A54.png?token=AD94hY1tb1sNlUlHyCcFSXCHC3PxgXV5ks5Z79EQwA%3D%3D" class="img-fluid" alt="Responsive image">
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-16%2022%3A39%3A57.png?token=AD94hZvy5bqihCfEIq1P2SsoNVm9_9O2ks5Z79EZwA%3D%3D" class="img-fluid" alt="Responsive image">
+        <p>Screenshots of <code class="highlighter-rouge">traceroute</code> results from <span class="label label-danger">NEWY</span> to <span class="label label-primary">server2</span>:</p>
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-16%2022%3A42%3A33.png?token=AD94hSCyqAFd28G593yoVhRtOHc3RslYks5Z79EUwA%3D%3D" class="img-fluid" alt="Responsive image">
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-16%2022%3A42%3A50.png?token=AD94hVxfPpk73ThoiccEhfloneztZbrfks5Z79EXwA%3D%3D" class="img-fluid" alt="Responsive image">
+
+        <p>Notice the time differences between cases. Comparing screenshot 1 with screenshot 3, it suggests a rather slow manner of <code class="highlighter-rouge">traceroute</code> from servers, while from routers, the speed is normal.</p>
+
+        <p>By specifying option <code class="highlighter-rouge">-n</code>, we demand all probes are printed in numerical form, instead of mapping numerical IP addr to host name. This saves the time to do an address-to-name lookup and make it speed up. By <code class="highlighter-rouge">tcpdump -i any ip proto icmp -l</code> and compare differences in packets, it verifies that there are several ICMP localhost udp port domain unreachable messages when <code class="highlighter-rouge">-n</code> not specified. This suggests that querying the hostname always causes timeout, as we do not have a localhost address-to-name lookup service.</p>
+      </li>
+
+      <li>
+        <p>Static router complains "Interface list empty". This is triggered by running <code class="highlighter-rouge">set_host.sh</code> before running <code class="highlighter-rouge">sr0</code>. Underlying reason still unknown as, it is not reasonable for host configuration to conflict with static router's interfaces.</p>
+      </li>
+
+      <li>
+        <p>For some routers, cannot <code class="highlighter-rouge">ping</code> through certain interfaces. For example, from <span class="label label-danger">WASH</span> to <code class="highlighter-rouge">2.0.3.2</code> of <span class="label label-danger">CHIC</span>, or from <span class="label label-danger">SALT</span> to <code class="highlighter-rouge">2.0.13.1</code> of <span class="label label-danger">LOSA</span>. It seems quagga does not have a perfect support for asymmertric routing.</p>
+        <p>Screenshots of packets captured by <code class="highlighter-rouge">tcpdump -i any 'icmp[icmptype]==8 or icmp[icmptype]==0' -l</code>, when initiate <code class="highlighter-rouge">ping</code> from <span class="label label-danger">WASH</span> to <code class="highlighter-rouge">2.0.3.2</code> of <span class="label label-danger">CHIC</span>:</p>
+        <p>Captured by <span class="label label-danger">WASH</span>:
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-17%2000%3A30%3A53%20wash%202.0.3.2.png?token=AD94hZcL4teqJSJ-yMq4vs_VOPNfdjnCks5Z79lGwA%3D%3D" class="img-fluid" alt="Responsive image"></p>
+        <p>Captured by <span class="label label-danger">CHIC</span>:
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-17%2000%3A31%3A25%20chic%202.0.3.2.png?token=AD94hUXro3RSx0_BTVtvzBVmUzqUJQbgks5Z79liwA%3D%3D" class="img-fluid" alt="Responsive image"></p>
+        <p>Captured by <span class="label label-danger">ATLA</span>:
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-17%2000%3A31%3A51%20atla%202.0.3.2.png?token=AD94hbkiuZUQl9dY-_Hnr3avFFeQUUCZks5Z79ltwA%3D%3D" class="img-fluid" alt="Responsive image"></p>
+
+        <p>Screenshots of packets captured by <code class="highlighter-rouge">tcpdump -i any 'icmp[icmptype]==8 or icmp[icmptype]==0' -l</code>, when initiate <code class="highlighter-rouge">ping</code> from <span class="label label-danger">WASH</span> to <code class="highlighter-rouge">2.0.3.1</code> of <span class="label label-danger">ATLA</span>:</p>
+        <p>Captured by <span class="label label-danger">WASH</span>:
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-17%2000%3A32%3A35%20wash%202.0.3.1.png?token=AD94hXPSS8zdN9ZT5tsBRAT5sFran1klks5Z79nIwA%3D%3D" class="img-fluid" alt="Responsive image"></p>
+        <p>Captured by <span class="label label-danger">CHIC</span>:
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-17%2000%3A33%3A47%20chic%202.0.3.1.png?token=AD94hU-ffPr4xkTFEEa-ShwrjsUS_AQIks5Z79nRwA%3D%3D" class="img-fluid" alt="Responsive image"></p>
+        <p>Captured by <span class="label label-danger">ATLA</span>:
+        <img src="https://raw.githubusercontent.com/USC-Govindan-Classes/Pylonight-cs551/master/lab3/Screenshot%20from%202017-10-17%2000%3A34%3A15%20atla%202.0.3.1.png?token=AD94hecrnP5l2saG5k_3M7IgFYKJlWopks5Z79ndwA%3D%3D" class="img-fluid" alt="Responsive image"></p>
+
+        <p>Now it is safe to make some analysis. The packet to subnet <code class="highlighter-rouge">2.0.3.0/24</code> always goes to <span class="label label-danger">ATLA</span>, as it is at a lower cost. But after <span class="label label-danger">ATLA</span> forwards packets with destination of <code class="highlighter-rouge">2.0.3.2</code>, to <span class="label label-danger">CHIC</span>, the latter one somehow, refuses to make a response. Similar issues when <code class="highlighter-rouge">ping</code> from <span class="label label-danger">SALT</span> to <code class="highlighter-rouge">2.0.13.1</code> of <span class="label label-danger">LOSA</span>.</p>
+
+        <p>Let's assume <span class="label label-danger">CHIC</span> will do a echo reply. And of course it will choose to send it directly to <span class="label label-danger">WASH</span> with a lower cost. This is called asymmertric routing. Maybe <span class="label label-danger">CHIC</span> checks the incoming echo request with in-interface says in-IF, and find out there is no route to send an echo reply back via in-IF, thus gives it up. This may be a reasonable explanation for it, aka it is possibly an underlying bug of quagga. And maybe that's why in lab 2, it is required to test <code class="highlighter-rouge">ping/traceroute</code> between pairs of hosts, instead of pairs of interfaces.</p>
+      </li>
+    </ul>
+
+    <h2 id="testing-cases"><a class="header-link" href="#testing-cases"><i class="fa fa-link"></i></a>Investigative Experiments</h2>
+
+    <p>This section includes some extra test cases and answers to certain questions.</p>
+
+    <ul>
+      <li>
+        <p>If an ISP set up its network similar to AS 2 or AS 4, then its IP block will run up very quickly. Making money will be extremely hard for this ISP.</p>
+      </li>
+
+      <li>
+        <p>We do not need to configure OSPF route for inter-AS link. As indicated above, it's a violation to the introduction of BGP. Actually we do not need OSPF configured for inter-AS links as, inter-AS links are always negotiated, routing on them are always manually configured along with BGP the protocol.</p>
+      </li>
+
+      <li>
+        <p>Extra experiments: major experiments and conclusions are listed in unexpected scenarios section. Most experiments are set to verify the assumption that quagga routers fail on asymmertric OSPF routing.</p>
+      </li>
+
+      <li>
+        <p>Extra test cases 1: set up the subnet of <span class="label label-primary">NEWY-host</span> and test connectivity from <span class="label label-primary">NEWY-host</span> to other hosts, routers and servers.</p>
+
+        <p>Extra test cases 2: <code class="highlighter-rouge">ping/traceroute</code> from static router <span class="label label-danger">sr0</span> to other hosts, routers and servers. And as expected, all trials fail, as we have not implemented the function to send echo request for our router. The static router can only reply to an echo request.</p>
+
+        <p>Extra test cases 3: modify the routing table of static router <span class="label label-danger">sr0</span> to test its behaviors. This is only aimed to ensure implementation of static router work well.</p>
+      </li>
+    </ul>
+
+
+
+  </section>
+
+  <footer>
+  </footer>
+
+
+
+        </article>
+      </div>
+    </div><!--/row-->
+  </div> <!-- /container -->
+
+  <hr>
+
+  <footer id="footer">
+    <p>Copyright © 2017, Yuchen Yan at yanyuche@usc.edu</p>
+  </footer>
+  <script src="./resources/jquery.min.js"></script>
+  <script src="./resources/bootstrap.min.js"></script>
+  <script src="./resources/site.js"></script>
+  <script>
+   (function(win, doc, script) {
+       
+   }(window, document, 'script'));
+  </script>
+
+</body>
+</html>

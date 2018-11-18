@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <title>CSCI-551: Computer Networking</title>
+
+  <link rel="stylesheet" href="./resources/style.css">
+</head>
+
+<body>
+  <header id="header">
+    <hgroup>
+      <h1 id="site-title">
+        <span class="full">CSCI-551: Computer Networking</span>
+        <span class="hidden-print short"></span>
+      </h1>
+    </hgroup>
+  </header>
+
+  <nav id="navbar">
+    <nav class="navbar navbar-default">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-navbar-collapse-1">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+        </div>
+
+        <div class="collapse navbar-collapse" id="bs-navbar-collapse-1">
+          <ul class="nav navbar-nav">
+            <li class="">
+              <a href="lab1.html">Lab 1</a>
+            </li>
+            <li class="">
+              <a href="lab2.html">Lab 2</a>
+            </li>
+            <li class="">
+              <a href="lab3.html">Lab 3</a>
+            </li>
+            <li class="">
+              <a href="lab4a.html">Lab 4a</a>
+            </li>
+            <li class="">
+              <a href="lab4b.html">Lab 4b</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+  </nav>
+
+  <div class="container-fluid">
+    <div class="row-fluid">
+      <div id="main" class="col-xs-12 col-sm-12">
+        <article>
+
+
+
+  <section>
+    <h1>Lab 4a: Cardinal TCP</h1>
+    <div class="row">
+      <div class="col-md-12">
+        <h2 id="overview"><a class="header-link" href="#highleveldesign"><i class="fa fa-link"></i></a>Program Structure and Design</h2>
+
+        <p>In this lab, the goal is to implement a reliable TCP variant called Cardinal TCP. Sliding window is the main focus. In the starter code, socket has been abstracted and become trasparent, thus the very only thing should be done is to implement pre-designed APIs. This is much more straight forward than what I did two yeas ago when on my Bachelor's, as what I did at that very time, was to build transport layer from scratch, interoperating with other layers implemented by some of my classmates.</p>
+
+        <p>One of the most improtant part is to design the state structure of our cTCP connection. This state structure should be per connection, and covers all information needed to complete jobs like acknowledging, retransmitting, flow controlling or tearing down. Linked list operations have been provided and it makes the design very clear and neat.</p>
+
+      </div>
+    </div>
+
+    <ul>
+      <li>
+        <p>cTCP state structure (<code class="highlighter-rouge">sr_protocol.h</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code><span class="k">struct</span> <span class="n">ctcp_state</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">ctcp_state</span> <span class="kt">*</span><span class="n">next</span><span class="p">;</span>    <span class="cm">/* Next in linked list */</span>
+  <span class="k">struct</span> <span class="n">ctcp_state</span> <span class="kt">**</span><span class="n">prev</span><span class="p">;</span>   <span class="cm">/* Prev in linked list */</span>
+  <span class="n">conn_t</span> <span class="kt">*</span><span class="n">conn</span><span class="p">;</span>               <span class="cm">/* Connection object */</span>
+  <span class="cm">/* timers */</span>
+  <span class="kt">long</span> <span class="n">reTransTimer</span><span class="p">;</span>          <span class="cm">/* retransmission timer */</span>
+  <span class="kt">long</span> <span class="n">reTransTimeout</span><span class="p">;</span>        <span class="cm">/* retransmission timeout */</span>
+  <span class="kt">uint8_t</span> <span class="n">tearDownTimer</span><span class="p">;</span>      <span class="cm">/* teardown timer */</span>
+  <span class="kt">uint8_t</span> <span class="n">tearDownTimeout</span><span class="p">;</span>    <span class="cm">/* teardown timeout */</span>
+  <span class="cm">/* EOF */</span>
+  <span class="kt">bool</span> <span class="n">sendEof</span><span class="p">;</span>               <span class="cm">/* EOF of our side */</span>
+  <span class="kt">bool</span> <span class="n">recvEof</span><span class="p">;</span>               <span class="cm">/* EOF of other side */</span>
+  <span class="cm">/* related to sender's sliding window */</span>
+  <span class="kt">uint16_t</span> <span class="n">sendWindow</span><span class="p">;</span>        <span class="cm">/* other side's window size from configuration */</span>
+  <span class="kt">uint32_t</span> <span class="n">seqNumber</span><span class="p">;</span>         <span class="cm">/* next segment to send */</span>
+  <span class="kt">uint32_t</span> <span class="n">lastACKed</span><span class="p">;</span>         <span class="cm">/* oldest segment not ACKed, left side of sender window */</span>
+  <span class="n">linked_list_t</span> <span class="kt">*</span><span class="n">segSent</span><span class="p">;</span>     <span class="cm">/* segments sent but not ACKed */</span>
+  <span class="cm">/* related to receiver's sliding window */</span>
+  <span class="kt">uint16_t</span> <span class="n">recvWindow</span><span class="p">;</span>        <span class="cm">/* our window size from configuration */</span>
+  <span class="kt">uint32_t</span> <span class="n">ackNumber</span><span class="p">;</span>         <span class="cm">/* newest segment from other side */</span>
+  <span class="kt">uint32_t</span> <span class="n">expectedNumber</span><span class="p">;</span>    <span class="cm">/* oldest segment lost, all ACK requesting this segment */</span>
+  <span class="kt">uint32_t</span> <span class="n">lastOuted</span><span class="p">;</span>         <span class="cm">/* oldest segment not outputed, left side of receiver window */</span>
+  <span class="n">linked_list_t</span> <span class="kt">*</span><span class="n">segRecvd</span><span class="p">;</span>    <span class="cm">/* segments received but out-of-order */</span>
+  <span class="n">linked_list_t</span> <span class="kt">*</span><span class="n">segToOut</span><span class="p">;</span>    <span class="cm">/* segments ready-to-output */</span>
+  <span class="cm">/* zero-window-probe */</span>
+  <span class="kt">long</span> <span class="n">zeroProbeTimer</span><span class="p">;</span>        <span class="cm">/* timer for zero-window-probe */</span>
+  <span class="kt">long</span> <span class="n">zeroProbeTimeout</span><span class="p">;</span>      <span class="cm">/* timeour for zero-window-probe */</span>
+<span class="p">}</span>
+</code></pre>
+        </div>
+
+        <p>Normal TCP has one more timer for teardown: when both side have sent FIN and got ACKed for the FIN, at least one side should set up a timer to wait for a period of time (around twice the maximum segment lifetime, says 2*retransmission_timeout), in case last ACK got lost. This is TCP FIN_WAIT state, but this is not required as indicated.</p>
+      </li>
+    </ul>
+
+    <p>To be more detailed, now let's focus on how sliding window works in the implementation.</p>
+
+    <ul>
+      <li>
+        <p>Sender window, aka flow control from the other side:</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>At some time T1:
+lastACKed                                                                seqNumber
+    &#8595;                                                                        &#8595;
+    --------------------------------------------------------------------------
+    &#8593;                                                                        &#8593;
+segSent->head                                                            segSent->tail
+
+At time T2 > T1, window slided after some segments got ACKed:
+          lastACKed                                                         seqNumber
+              &#8595;                                                                 &#8595;
+    -----------------------------------------------------------------------------
+              &#8593;                                                                 &#8593;
+          segSent->head                                                     segSent->tail
+
+PS: segments with sequence number smaller than lastACKed will be removed from segSent and freed
+</code></pre>
+        </div>
+
+        <p>seqNumber-lastACKed <= sendWindow should always hold, in order not to overflow receiver's buffer. To achieve this, when there is data to read and send, we calculate how many bytes we can send to the receiver, and we never send more than receiver's buffer can hold.</p>
+
+        <p>seqNumber gets greater when sending new segments, while lastACKed gets greater when sent segments get ACKed. These two indicator slides the sender window.</p>
+
+        <p>This mechanism brings a new problem, as when receiver's buffer is full, then we can never send anything to the receiver, thus we can never know when receiver is ready to more data, if receiver would not send something to advertise its window size. To deal with that scenario, zero-window-probe is invented. The key idea is, when receiver's buffer is full aka window is full, sender sets a timer called zero-probe-timer to wait for a period of time. It the timer hits a timeout, sender will send next 1-byte data to the receiver, whether it is legal (within window) or not (out of window), looking forward to receiver's reply with new window size. If still no reply comes from receiver, the timeout will be doubled until sender decides to teardown due to unresponsive. This resolves the deadlock.</p>
+      </li>
+
+      <li>
+        <p>Receiver window, aka flow control to the other side:</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>At some time T1:
+lastOuted                   expectedNumber                                ackNumber
+    &#8595;                            &#8595;                                           &#8595;
+    -----------------------------*--*----********-------***----*-----*---**---
+    &#8593;                           &#8593; &#8593;                                          &#8593;
+segToOut->head     segToOut->tail segRecvd->head                          segRecvd->tail
+
+At time T2 > T1, window slided after some out-of-order segments got re-ordered:
+          lastOuted                                expectedNumber            ackNumber
+              &#8595;                                         &#8595;                       &#8595;
+    ----------------------------------------------------***----*-----*---**------
+              &#8593;                                        &#8593;   &#8593;                    &#8593;
+          segToOut->head                  segToOut->tail   segRecvd->head    segRecvd->tail
+
+PS1: * means segments not yet arrived due to out-of-order
+PS2: segments with sequence number smaller than lastOuted will be removed from segToOut and freed
+</code></pre>
+        </div>
+
+        <p>ackNumber-lastOuted <= recvWindow should always hold. To achieve this, when there is new segment coming, if we cannot hold it in our buffer (out-of-window), we simply discard it to flow control the sender.</p>
+
+        <p>When a new segment comes in, receiver will use the segment's sequence number to compare with expectedNumber and ackNumber,to decide whether the new segment is a duplicate segment already outputed, or the expected segment (in most scenario), or an out-of-order segment that we should store, or an out-of-window segment should be discard.</p>
+
+        <p>If it is a expected segment, then receiver should re-order the out-of-order segments and deliver as much as possible segments to the output (move them from segRecvd to segToOut); Otherwise, if it is an out-of-order segment, then go through segRecvd and insert the segment to the correct place to keep them in order.</p>
+      </li>
+    </ul>
+
+    <h2 id="implementation-details"><a class="header-link" href="#implementation-details"><i class="fa fa-link"></i></a>Implementation Challenges</h2>
+
+    <p>The only challenge is whether sender should stay optimistic, or not, when retransmission timeout happens and sender should retransmit segments.</p>
+
+    <ul>
+      <li>
+        <p>If we decide to be pessimistic, which means we set the timer in a per segment manner. When ctcp_timer is called, we simply go through the list of segments sent and, for every segmetn not ACKed, decide whether it is needed to retransmit it. That being said, sender need to maintain quite a few timers per connection. Pessimistic means we tend to think all segments sent after the timeout segment have lost during transition.</p>
+      </li>
+
+      <li>
+        <p>Or if we go optimistic way, which means we only set ONE timer per connection. If timeout happens, sender only retransmits the first segment not ACKed. Optimistic means we think all segment sent after the timeout segment have arrived in an out-of-order manner but ACK for the timeout segment has not yet come back, or lost, or they are still during transition.</p>
+      </li>
+
+      <li>
+        <p>It is quite clear that the advantage of being pessimistic over being optimistic is that, sender can tell whether a certain segment has lost or not. The disadvantage is that, there are much more timers to maintain, and the state structure will be more complex.</p>
+      </li>
+    </ul>
+
+    <p>I finally decided to go optimistic way. It seems to be originated from Berkeley's design of TCP. This saves quite a few resources and I think it suits our scenarios. The traffic is not so large and number of hops are limited so timeout and out-of-order will not happen in a frequent manner.</p>
+
+    <h2 id="testing-cases"><a class="header-link" href="#testing-cases"><i class="fa fa-link"></i></a>Testing</h2>
+
+    <p>This section includes some test cases and strategies to test and debug.</p>
+
+    <ul>
+      <li>
+        <p>File Integrity Test: Type <code class="highlighter-rouge">sudo ./ctcp -s -p 8888 > transctcp</code> into one terminal and then <code class="highlighter-rouge">sudo ./ctcp -c localhost:8888 -p 9999 < ctcp</code> into another terminal. This cause binary file <code class="highlighter-rouge">ctcp</code> to be transmitted from client to server and written as new binary file <code class="highlighter-rouge">transctcp</code>. Then teardown the client and server, and launch new client and server using <code class="highlighter-rouge">transctcp</code> to test its functionality.</p>
+      </li>
+
+      <li>
+        <p>Bidirectional Large File Test: Using an image file sized 4Mb named <code class="highlighter-rouge">a.jpg</code>. Type <code class="highlighter-rouge">sudo ./ctcp -s -p 8888 > b.jpg < a.jpg</code> into one terminal and then <code class="highlighter-rouge">sudo ./ctcp -c localhost:8888 -p 9999 > c.jpg < a.jpg</code> into another terminal. Notice that before a client connects to the server, the server will not send anything and will hold the image. When they connects with each other, they should send the image to each other and finally send EOF(FIN) to each other, and both of them will teardown the connection at the same time. And images will be identical to the original one. What's more, when launching the client and server, we can specifys the delay or drop rate, and observe whether image file will be correctly transmitted.</p>
+      </li>
+    </ul>
+
+    <p>Strategies: If an implementation has N features, we should come up with almost combination number of N different test cases to first test any single feature, and then test how good can they interoperate with each other. What is also important is that, during implementation, it will be good to use <code class="highlighter-rouge">#ifndef</code> to define macros logging debugging messages.</p>
+
+    <h2 id="testing-cases"><a class="header-link" href="#testing-cases"><i class="fa fa-link"></i></a>Remaining Bugs</h2>
+
+    <p>According to the requirements, there is no remaining bugs in this implementation. All testers passed without longer timeout. Large files such as image file sized 4Mb or any other binary file including ctcp itself can be correctly transmitted. This cTCP can also interoperate with web server at www.google.com:80.</p>
+
+  </section>
+
+  <footer>
+  </footer>
+
+
+
+        </article>
+      </div>
+    </div><!--/row-->
+  </div> <!-- /container -->
+
+  <hr>
+
+  <footer id="footer">
+    <p>Copyright © 2017, Yuchen Yan at yanyuche@usc.edu</p>
+  </footer>
+  <script src="./resources/jquery.min.js"></script>
+  <script src="./resources/bootstrap.min.js"></script>
+  <script src="./resources/site.js"></script>
+  <script>
+   (function(win, doc, script) {
+       
+   }(window, document, 'script'));
+  </script>
+
+</body>
+</html>

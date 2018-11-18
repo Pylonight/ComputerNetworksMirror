@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <title>CSCI-551: Computer Networking</title>
+
+  <link rel="stylesheet" href="./resources/style.css">
+</head>
+
+<body>
+  <header id="header">
+    <hgroup>
+      <h1 id="site-title">
+        <span class="full">CSCI-551: Computer Networking</span>
+        <span class="hidden-print short"></span>
+      </h1>
+    </hgroup>
+  </header>
+
+  <nav id="navbar">
+    <nav class="navbar navbar-default">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-navbar-collapse-1">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+        </div>
+
+        <div class="collapse navbar-collapse" id="bs-navbar-collapse-1">
+          <ul class="nav navbar-nav">
+            <li class="">
+              <a href="lab1.html">Lab 1</a>
+            </li>
+            <li class="">
+              <a href="lab2.html">Lab 2</a>
+            </li>
+            <li class="">
+              <a href="lab3.html">Lab 3</a>
+            </li>
+            <li class="">
+              <a href="lab4a.html">Lab 4a</a>
+            </li>
+            <li class="">
+              <a href="lab4b.html">Lab 4b</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+  </nav>
+
+  <div class="container-fluid">
+    <div class="row-fluid">
+      <div id="main" class="col-xs-12 col-sm-12">
+        <article>
+
+
+
+  <section>
+    <h1>Lab 1: Simple Static Router</h1>
+    <div class="row">
+      <div class="col-md-12">
+        <h2 id="overview"><a class="header-link" href="#highleveldesign"><i class="fa fa-link"></i></a>High Level Design</h2>
+
+        <p>In this lab, two paths of control flow are added or completed. The first one is dispatcher-handler flow. Method <span class="label label-danger">sr_handlepacket</span> plays the role of dispatcher, examine Ethernet packets and dispatch them to ARP handler <span class="label label-primary">sr_handle_arp</span> or IPv4 handler <span class="label label-primary">sr_handle_ipv4</span>. The second one is ARP request queue management. Method <span class="label label-danger">sr_arpcache_sweepreqs</span> sweeps the queue every second and each entry is handled by <span class="label label-primary">sr_handle_arpreq</span>.</p>
+
+      </div>
+    </div>
+
+    <ul>
+
+
+      <li>
+        <p><span class="label label-primary">ICMP header</span>
+        An universal ICMP header for type 0, 3 and 11 (<code class="highlighter-rouge">sr_protocol.h</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code><span class="cm">/**
+ * When it comes to t0, payload size is not limited, so better not to mimic the ICMP header
+ * provided in starter code. It will cause unforeseen result upon out-of-bound.
+ * Payload should be accessed in the same way as accessing to Ethernet packet payload.
+ */</span>
+<span class="k">struct</span> <span class="n">sr_icmp_t0_t3_t11_hdr</span> <span class="p">{</span>
+  <span class="cm">/* line 1 */</span>
+  <span class="kt">uint8_t</span> <span class="n">icmp_type</span><span class="p">;</span>                   <span class="cm">/* type of ICMP message */</span>
+  <span class="kt">uint8_t</span> <span class="n">icmp_code</span><span class="p">;</span>                   <span class="cm">/* code of ICMP message */</span>
+  <span class="kt">uint16_t</span> <span class="n">icmp_sum</span><span class="p">;</span>                   <span class="cm">/* checksum of ICMP header and payload */</span>
+  <span class="cm">/* line 2 */</span>
+  <span class="k">union</span> <span class="n">sr_icmp_t0_t3_t11_hdr_line2</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">sr_icmp_t0_hdr_line2</span> <span class="p">{</span>
+      <span class="kt">uint16_t</span> <span class="n">icmp_id</span><span class="p">;</span>                <span class="cm">/* identification */</span>
+      <span class="kt">uint16_t</span> <span class="n">icmp_seq</span><span class="p">;</span>               <span class="cm">/* sequential number */</span>
+    <span class="p">}</span> <span class="kt">__attribute__</span> <span class="p">((</span><span class="n">packed</span><span class="p">))</span> <span class="n">t0</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">sr_icmp_t3_hdr_line2</span> <span class="p">{</span>
+      <span class="kt">uint16_t</span> <span class="n">unused</span><span class="p">;</span>
+      <span class="kt">uint16_t</span> <span class="n">icmp_next_mtu</span><span class="p">;</span>          <span class="cm">/* next MTU */</span>
+    <span class="p">}</span> <span class="kt">__attribute__</span> <span class="p">((</span><span class="n">packed</span><span class="p">))</span> <span class="n">t3</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">sr_icmp_t11_hdr_line2</span> <span class="p">{</span>
+      <span class="kt">uint32_t</span> <span class="n">unused</span><span class="p">;</span>
+    <span class="p">}</span> <span class="kt">__attribute__</span> <span class="p">((</span><span class="n">packed</span><span class="p">))</span> <span class="n">t11</span><span class="p">;</span>
+  <span class="p">}</span> <span class="kt">__attribute__</span> <span class="p">((</span><span class="n">packed</span><span class="p">))</span> <span class="n">line2</span><span class="p">;</span>
+<span class="p">}</span> <span class="kt">__attribute__</span> <span class="p">((</span><span class="n">packed</span><span class="p">))</span> <span class="p">;</span>
+</code></pre>
+        </div>
+
+        <p>This struct using nested union and nested struct can hold universal ICMP header for the lab.</p>
+      </li>
+
+<!--      <li>
+        <p><span class="label label-danger">Altered</span>
+        Dispatch incoming packets to ARP handler or IPv4 handler (<code class="highlighter-rouge">sr_router.h|sr_router.c</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>  <span class="cm">/**
+   * This method is altered for completing packets dispatching flow.
+   * Unpack Ethernet header and examine Ethernet type, then dispatch the packet accordingly.
+   * Verify Ethernet header length.
+   * "interface" indicates the interface "packet" came in.
+   */</span>
+  <span class="kt">void</span>
+  <span class="vi">sr_handlepacket</span><span class="p">(</span><span class="kn">struct</span> <span class="n">sr_instance</span> <span class="o">*</span><span class="n">sr</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="o">*</span><span class="n">packet</span><span class="p">,</span> <span class="kt">unsigned int</span> <span class="n">len</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">interface</span><span class="p">);</span></code></pre>
+        </div>
+        <p class="alert alert-danger">NOTE: Both the packet buffer and the character's memory are handled by <code class="highlighter-rouge">sr_vns_comm.c</code>, which indicates that under no circumstance the packet should be freed, even if certain callee asks caller to free the packet upon taking over the flow. Do not do what <span class="vi">sr_arpcache_queuereq</span> in <code class="highlighter-rouge">sr_arpcache.c</code> says, the packet should not be freed.</p>
+      </li>-->
+
+      <li>
+        <p><span class="label label-primary">sr_handle_arp</span>
+        ARP handler handles packets from dispatcher <span class="label label-danger">sr_handlepacket</span> (<code class="highlighter-rouge">sr_router.h|sr_router.c</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>  <span class="cm">/**
+   * Handle ARP packets. Classify ARP packets into ARP requests or ARP replies, and handles.
+   * Verify ARP header length, format and length of hardware and protocol address.
+   * "interface" indicates the interface "packet" came in.
+   */</span>
+  <span class="kt">void</span>
+  <span class="vi">sr_handle_arp</span><span class="p">(</span><span class="kn">struct</span> <span class="n">sr_instance</span> <span class="o">*</span><span class="n">sr</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="o">*</span><span class="n">packet</span><span class="p">,</span> <span class="kt">unsigned int</span> <span class="n">len</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">interface</span><span class="p">);</span></code></pre>
+        </div>
+
+        <p>The ARP handler discards any packet not destinated to the incoming interface. For ARP replies, cache sender IP-MAC mapping and send out all waiting packets in the queue, then destroy the single request; For ARP requests, simply send back an ARP reply. As indicated in the lab instruction, caching IP-MAC mapping or satisfy current waiting request upon incoming ARP requests, is not required and not supposed to be implemented.</p>
+      </li>
+
+      <li>
+        <p><span class="label label-primary">sr_handle_ipv4</span>
+        IPv4 handler handles packets from dispatcher <span class="label label-danger">sr_handlepacket</span> (<code class="highlighter-rouge">sr_router.h|sr_router.c</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>  <span class="cm">/**
+   * Handle IPv4 packets. Classify IPv4 packets into packets destinated to router or,
+   * packets need to be forwarded, and handles.
+   * Verify IP header length, IP version and header checksum.
+   * "interface" indicates the interface "packet" came in.
+   */</span>
+  <span class="kt">void</span>
+  <span class="vi">sr_handle_ipv4</span><span class="p">(</span><span class="kn">struct</span> <span class="n">sr_instance</span> <span class="o">*</span><span class="n">sr</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="o">*</span><span class="n">packet</span><span class="p">,</span> <span class="kt">unsigned int</span> <span class="n">len</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">interface</span><span class="p">);</span></code></pre>
+        </div>
+
+        <p>The IPv4 handler discards any packet not destinated one of router's interface, which is a little bit different from ARP handler. For packets destinated to router, handle if they are ICMP echo request or TCP or UDP, discard otherwise; For packets not destinated to the router, packets should be normally forwarded to the next-hop of destination.</p>
+      </li>
+
+<!--      <li>
+        <p><span class="label label-primary">Implemented</span>
+        Method to send out ICMP message via specified interface (<code class="highlighter-rouge">sr_router.h|sr_router.c</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>  <span class="cm">/**
+   * Construct and pack a new Ethernet packet carries ICMP message, given ICMP "type" and "code".
+   * Use necessary information inside "oldPacket" to pack the new packet. In our implementaion,
+   * ICMP messages are always responses to senders, as routers do not ping.
+   * Verify ICMP type only.
+   * "outInterface" indicates the interface via which new packet should be sent.
+   */</span>
+  <span class="kt">void</span>
+  <span class="vi">sr_send_icmp</span><span class="p">(</span><span class="kn">struct</span> <span class="n">sr_instance</span> <span class="o">*</span><span class="n">sr</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="o">*</span><span class="n">oldPacket</span><span class="p">,</span> <span class="kt">unsigned int</span> <span class="n">olePacketLen</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="n">type</span><span class="p">,</span>
+               <span class="kt">uint8_t</span> <span class="n">code</span><span class="p">,</span> <span class="kn">struct</span> <span class="n">sr_if</span> <span class="o">*</span><span class="n">outInterface</span><span class="p">);</span></code></pre>
+        </div>
+      </li>-->
+
+<!--      <li>
+        <p><span class="label label-primary">Implemented</span>
+        Method to send out ARP message via specified interface (<code class="highlighter-rouge">sr_router.h|sr_router.c</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>  <span class="cm">/**
+   * Construct and pack a new Ethernet packet carries ARP message, given ARP "opCode".
+   * Only target IP-MAC mapping is needed, original packet "oldPacket" is not necessary.
+   * Verify ARP operation code only.
+   * "outInterface" indicates the interface via which new packet should be sent.
+   */</span>
+  <span class="kt">void</span>
+  <span class="vi">sr_send_arp</span><span class="p">(</span><span class="kn">struct</span> <span class="n">sr_instance</span> <span class="o">*</span><span class="n">sr</span><span class="p">,</span> <span class="kt">uint32_t</span> <span class="n">opCode</span><span class="p">,</span> <span class="kt">uint32_t</span> <span class="n">ipHtonled</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="o">*</span><span class="n">mac</span><span class="p">,</span>
+              <span class="kn">struct</span> <span class="n">sr_if</span> <span class="o">*</span><span class="n">outInterface</span><span class="p">);</span></code></pre>
+        </div>
+      </li>-->
+
+<!--      <li>
+        <p><span class="label label-danger">Altered</span>
+        Manages every ARP request router has made (<code class="highlighter-rouge">sr_arpcache.h|sr_arpcache.c</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>  <span class="cm">/**
+   * This method is altered for completing ARP request updating flow.
+   * Sweep the ARP request linked list and handle every ARP request entry.
+   */</span>
+  <span class="kt">void</span>
+  <span class="vi">sr_arpcache_sweepreqs</span><span class="p">(</span><span class="kn">struct</span> <span class="n">sr_instance</span> <span class="o">*</span><span class="n">sr</span><span class="p">);</span></code></pre>
+        </div>
+      </li>-->
+
+      <li>
+        <p><span class="label label-primary">sr_handle_arqreq</span>
+        Handle single ARP request entry or called manually to send out an ARP request immediately (<code class="highlighter-rouge">sr_arpcache.h|sr_arpcache.c</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code>  <span class="cm">/**
+   * Handle single ARP request entry in ARP request queue. If attempt for 5 times,
+   * send ICMP net unreachable for every packet waiting to packet's sender.
+   */</span>
+  <span class="kt">void</span>
+  <span class="vi">sr_handle_arqreq</span><span class="p">(</span><span class="kn">struct</span> <span class="n">sr_instance</span> <span class="o">*</span><span class="n">sr</span><span class="p">,</span> <span class="kn">struct</span> <span class="n">sr_arpreq</span> <span class="o">*</span><span class="n">req</span><span class="p">);</span></code></pre>
+        </div>
+      </li>
+
+      <p>The ARP request entry handler judges how many times an ARP request has been attempted. If made 5 times, all waiting packets should be dropped and ICMP net unreachable should be sent to sender for every packet, via recorded incoming interface; Otherwise, another ARP request should be made and update the timer, via recorded outgoing interface.</p>
+    </ul>
+
+    <h2 id="implementation-details"><a class="header-link" href="#implementation-details"><i class="fa fa-link"></i></a>Implementation Details</h2>
+
+    <div>
+      <p><strong>ARP handler flow of control</strong></p>
+
+      <ul>
+        <li>Verify ARP header length, format and length of hardware and protocol address. Discard upon failure.</li>
+        <li>Verify that packet is destinated to incoming interface. Discard upon failure.</li>
+        <li>Check whether the packet is ARP reply or ARP request.</li>
+        <ul>
+            <li>If it is ARP reply, cache IP-MAC mapping. Using that mapping to send out all waiting packets to the next-hop of each packet respectively. Do not forget to destroy the request entry. Method <span class="label label-danger">sr_arpreq_destroy</span> can still be used, but doing it manually is preferred as a time-saver.</li>
+            <li>If it is ARP request, simply send back ARP reply. Again, as indicated in the lab instruction, caching IP-MAC mapping or satisfy current waiting request upon incoming ARP requests, is not required and not supposed to be implemented.</li>
+            <li>Otherwise, discard the packet.</li>
+        </ul>
+        <li>Flow of control ends here.</li>
+      </ul>
+    </div>
+
+    <div>
+      <p><strong>IPv4 handler flow of control</strong></p>
+
+      <ul>
+        <li>Verify IP header length, IP version and header checksum. Discard upon failure.</li>
+        <li>Check whether the packet is destinated to one of router's interface.</li>
+        <ul>
+          <li>If so, check the payload protocol.</li>
+          <ul>
+            <li>If payload protocol is ICMP, check its type.</li>
+            <ul>
+              <li>If it is ICMP echo request(type 8 code 0), send back ICMP echo reply(type 0 code 0).</li>
+              <li>Otherwise, discard the packet.</li>
+            </ul>
+            <li>If payload protocol is TCP or UDP, send back ICMP port unreachable.</li>
+            <li>Otherwise, discard the packet.</li>
+          </ul>
+          <li>Otherwise, check packet TTL.</li>
+          <ul>
+            <li>If TTL <= 1, discard the packet and send back ICMP time exceeded(type 11 code 0).</li>
+            <li>Otherwise, perform LPM on routing table to find next-hop of the packet.</li>
+            <ul>
+              <li>If next-hop found, check ARP cache to find corresponding MAC.</li>
+              <ul>
+                <li>If MAC found, update the TTL and checksum and send out the packet to its next-hop, using found IP-MAC mapping.</li>
+                <li>Otherwise, insert the packet into ARP request queue with next-hop IP and both incoming and outgoing interface. Incoming interface will be used to send back ICMP net unreachable message while outgoing interface will be used to forward the packet once ARP request is replied. This requirs a little bit modification to the structure of ARP request entry, to add an incoming interface member. Doing this can help avoid querying routing table when send back ICMP net unreachable message.</li>
+              </ul>
+              <li>Otherwise, send back ICMP host unreachable(type 3 code 1).</li>
+            </ul>
+          </ul>
+        </ul>
+        <li>Flow of control ends here.</li>
+      </ul>
+    </div>
+
+    <h2 id="testing-cases"><a class="header-link" href="#testing-cases"><i class="fa fa-link"></i></a>Testing Cases</h2>
+
+    <div>
+      <p>In addition to 5 criteria provided in lab instruction, several other tests are performed against the impelmented router.</p>
+
+      <ul>
+        <li>From mininet screen, "pingall" and "pingallfull" should work with no packet loss.</li>
+
+        <li>Ping from client to server1, check router ARP cache, there should be two entries.</li>
+
+        <li>Ping from client to server1, check router ARP cache after 20 seconds, should be empty.</li>
+
+        <li>Ping from client to 192.168.2.3(or any other non-existing IP), all packet lost and no ICMP host unreachable message, due to mask being 0.0.0.0 of first entry in routing table.</li>
+
+        <li>
+          <p>Modify routing table in <code class="highlighter-rouge">rtable</code> to be following:</p>
+          <div class="highlighter-rouge"><pre class="highlight"><code>Destination  Gateway      Mask             Iface
+------------ ------------ ---------------- --------
+0.0.0.0      10.0.1.100   255.255.255.255  sw0-eth3
+192.168.2.2  192.168.2.2  255.255.255.255  sw0-eth1
+172.64.3.10  172.64.3.10  255.255.255.255  sw0-eth2
+</code></pre>
+          </div>
+          <ul>
+            <li>Again, ping from client to 192.168.2.3(or any other non-existing IP), all packet lost with ICMP host unreachable message.</li>
+            <li>But, ping from server1 or server2 to client should failed.</li>
+            <li>Server1 and server2 can ping through from one to each other.</li>
+          </ul>
+        </li>
+
+        <li>
+          <p>Again, modify routing table in <code class="highlighter-rouge">rtable</code> to be following:</p>
+          <div class="highlighter-rouge"><pre class="highlight"><code>Destination  Gateway      Mask             Iface
+------------ ------------ ---------------- --------
+10.0.1.100   10.0.1.100   255.255.255.255  sw0-eth3
+192.168.2.2  192.168.2.2  255.255.255.255  sw0-eth1
+172.64.3.10  172.64.3.10  255.255.255.255  sw0-eth2
+</code></pre>
+          </div>
+          <ul>
+            <li>Again, ping from client to 192.168.2.3(or any other non-existing IP), all packet lost with ICMP host unreachable message.</li>
+            <li>From mininet screen, "pingall" and "pingallfull" should work with no packet loss.</li>
+            <li>Ping from VM should to any host or interface should work.</li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+
+  </section>
+
+  <footer>
+  </footer>
+
+
+
+        </article>
+      </div>
+    </div><!--/row-->
+  </div> <!-- /container -->
+
+  <hr>
+
+  <footer id="footer">
+    <p>Copyright © 2017, Yuchen Yan at yanyuche@usc.edu</p>
+  </footer>
+  <script src="./resources/jquery.min.js"></script>
+  <script src="./resources/bootstrap.min.js"></script>
+  <script src="./resources/site.js"></script>
+  <script>
+   (function(win, doc, script) {
+       
+   }(window, document, 'script'));
+  </script>
+
+</body>
+</html>

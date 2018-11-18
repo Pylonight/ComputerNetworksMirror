@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <title>CSCI-551: Computer Networking</title>
+
+  <link rel="stylesheet" href="./resources/style.css">
+</head>
+
+<body>
+  <header id="header">
+    <hgroup>
+      <h1 id="site-title">
+        <span class="full">CSCI-551: Computer Networking</span>
+        <span class="hidden-print short"></span>
+      </h1>
+    </hgroup>
+  </header>
+
+  <nav id="navbar">
+    <nav class="navbar navbar-default">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-navbar-collapse-1">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+        </div>
+
+        <div class="collapse navbar-collapse" id="bs-navbar-collapse-1">
+          <ul class="nav navbar-nav">
+            <li class="">
+              <a href="lab1.html">Lab 1</a>
+            </li>
+            <li class="">
+              <a href="lab2.html">Lab 2</a>
+            </li>
+            <li class="">
+              <a href="lab3.html">Lab 3</a>
+            </li>
+            <li class="">
+              <a href="lab4a.html">Lab 4a</a>
+            </li>
+            <li class="">
+              <a href="lab4b.html">Lab 4b</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+  </nav>
+
+  <div class="container-fluid">
+    <div class="row-fluid">
+      <div id="main" class="col-xs-12 col-sm-12">
+        <article>
+
+
+
+  <section>
+    <h1>Lab 4b: BBR</h1>
+    <div class="row">
+      <div class="col-md-12">
+        <h2 id="overview"><a class="header-link" href="#highleveldesign"><i class="fa fa-link"></i></a>Program Structure and Design</h2>
+
+        <p>In this lab, the goal is to implement BBR and incorporate it into our cTCP. Taken into consideration that, we have a different framework from Linux kernel, and we did not make interfaces for congestion control, we are allowed to vary from standard Google BBR. The most important part of BBR is estimation of BDP, in other words, measurements of RTT and BW. Another indispensable part is state shifting. And pace adjustment should not be forgotten.</p>
+
+        <p>This report will be quite long as there are two bugs underlying the starter code. I think I should make it clear as this is quite evil and debugging with starter code is not that pleasant. These two bugs are stated in "Implementation Challenges" section.</p>
+
+      </div>
+    </div>
+
+    <ul>
+      <li>
+        <p>cTCP state structure modification (<code class="highlighter-rouge">ctcp.c</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code><span class="k">struct</span> <span class="n">ctcp_state</span> <span class="p">{</span>
+  <span class="n">......</span>
+  <span class="n">bbr_state_t</span> <span class="kt">*</span><span class="n">bbr</span><span class="p">;</span>    <span class="cm">/* bbr state and information stored */</span>
+<span class="p">}</span>
+</code></pre>
+        </div>
+
+        <p>This design make BBR a little bit "interface-like". BBR related functions can be called inside cTCP functions, passing this pointer to BBR state as parameter. This made it easier to turn it on and off, which got debug more handy.</p>
+      </li>
+
+      <li>
+        <p>BBR state (<code class="highlighter-rouge">ctcp_bbr.h</code>):</p>
+
+        <div class="language-c++ highlighter-rouge"><pre class="highlight"><code><span class="k">struct</span> <span class="n">bbr_state</span> <span class="p">{</span>
+  <span class="kt">int</span> <span class="n">state</span><span class="p">;</span>              <span class="cm">/* current state */</span>
+  <span class="kt">int</span> <span class="n">prevState</span><span class="p">;</span>          <span class="cm">/* previous state */</span>
+  <span class="kt">long</span> <span class="n">minRtt</span><span class="p">;</span>            <span class="cm">/* current minimum RTT in the window in ms */</span>
+  <span class="kt">long</span> <span class="n">minRttTimestamp</span><span class="p">;</span>   <span class="cm">/* timestamp of current minimum RTT in ms */</span>
+  <span class="kt">uint16_t</span> <span class="n">maxBw</span><span class="p">;</span>         <span class="cm">/* current maximum BW in the window in bpms */</span>
+  <span class="kt">uint16_t</span> <span class="n">maxBwLifetime</span><span class="p">;</span> <span class="cm">/* lifetime of current maximum BW in count */</span>
+  <span class="kt">long</span> <span class="n">lastDeliveredTime</span><span class="p">;</span> <span class="cm">/* last time upon an ACK */</span>
+  <span class="kt">uint32_t</span> <span class="n">maxBwLifetime</span><span class="p">;</span> <span class="cm">/* stay in appLim area until this byte counter runs out */</span>
+  <span class="kt">long</span> <span class="n">nextSendTime</span><span class="p">;</span>      <span class="cm">/* next send time to pace steadily */</span>
+  <span class="kt">int</span> <span class="n">bwNoGrowthCnt</span><span class="p">;</span>      <span class="cm">/* count the round where BW has no significant growth */</span>
+  <span class="kt">long</span> <span class="n">probeRttUntil</span><span class="p">;</span>     <span class="cm">/* stay in probe RTT state until this time */</span>
+  <span class="kt">int</span> <span class="n">startupFourSegCnt</span><span class="p">;</span>  <span class="cm">/* at least we can send 4 segments when we don't have RTT and BW */</span>
+  <span class="kt">int</span> <span class="n">bwExpireCnt</span><span class="p">;</span>        <span class="cm">/* count the number of times BW expires */</span>
+  <span class="kt">int</span> <span class="n">probeBwUntil</span><span class="p">;</span>       <span class="cm">/* send at a higher rate in probe BW state until */</span>
+  <span class="kt">int</span> <span class="n">drainBwUntil</span><span class="p">;</span>       <span class="cm">/* send at a lower rate in probe BW state until */</span>
+<span class="p">}</span>
+</code></pre>
+        </div>
+
+        <p>This state structure is mainly used to store kinds of states and information needed to keep BBR running correctly. Then I will demonstrate how BDP is estimated. What is more, I also modified the structure "ll_node" to record timestamp of the caches segment was sent, cumulative number of bytes delivered when the segment was sent, etc, to assist in estimation. Due to length limitaion of the report, this is not shown.</p>
+
+        <p>As for RTT, we have every segment's timestamp upon sending, called sendTime. And when we receive an ACK, I call this moment nowTime. Then we have estimation of RTT of this single segment, as nowTime-sendTime, then we send it into the RTT filter. What is needed to consider more is that, ACK may be delayed. In order to cooperate with delayed ACKs, only last segment ACKed contributes to RTT filter. If not, it becomes a little bit useless, as former segments always yield higher RTT due to delayed ACKs.</p>
+
+        <p>In terms of BW, we have cumulative number of bytes delivered when a segment was sent, called deliveredOnSend, and we have the timestamp of last moment when we receive an ACK, called lastDeliveredTime. Then upon receiving new ACKs, we have new cumulative number of bytes delivered called deliveredNow. Then BW estimation is (deliveredNow-deliveredOnSend)/(nowTime-lastDeliveredTime). By doing this, we take the interval between ACKs as sampling windows, and bytes delivered in windows divided by the length of windows are our estimation of BW. BW is used to calculted BDP, along with calculting the pacing of segments sending. As stated in BBR paper, sending in a "11110000" pattern is totally different from pattern "10101010". The latter should behave better as average RTT should be lower. So even if our target is to send one BDP infight, we cannot send too fast. Instead, we should keep pacement according to our BW. Upon each sending, next sending time is calculated by bytes sent this time divided by BW.</p>
+
+        <p>As stated above, we already have BW and RTT. BDP = BW*RTT, and thus we have an estimation of BDP. And this should be our cwnd, as the core of BBR is to limit inflights around one BDP.</p>
+
+        <p>But this is not finished yet, as we have states in BBR. This is a simple FSM and under different state, we have different modifier for BW reference and BDP reference. For example, in STARTUP state, we should send faster than BW has indicated, so when refer to BW, a modifier around 2.8 is multipled by BW, resulting sending faster and filling up the pipe quicker. In DRAIN state, however, a modifier around 0.3 is multipled, indicating the sender to slow down, to drain the queue. If we say the soul of BBR is estimation of BDP, then this FSM is the body of BBR, without which BBR will never find out true BDP.</p>
+      </li>
+    </ul>
+
+    <p>Briefly about BBR funtions:</p>
+
+    <ul>
+      <li>
+        <p>bbr_on_ack: This is called when an ACK is received. According to BBR paper and p-code, RTT and BW mesurements are done here, and using there newly measured RTT and BW to update the filter.</p>
+      </li>
+
+      <li>
+        <p>bbr_get_available_len: This is called when there is data to send. It firstly checks whether "next sending time" has passed. If not, then due to keep smooth pacement, we should not send. If so, then return the number of bytes permitted to send by congestion window, says one BDP. This congestion window, however, also has modifier for it. It is not simply set to be one BDP. It gets higher in STARTUP and more steady when in PROBE_BW, as in STARTUP, we need to fill the pipe quickly, but in PROBE_BW, we need to send smoothly.</p>
+      </li>
+
+      <li>
+        <p>bbr_on_send: This is called upon sending a segment. Several kinds of information are recored, as stated above.</p>
+      </li>
+
+      <li>
+        <p>Other functions such as BW filter and RTT filter are left out here due to length limitaion of the report.</p>
+      </li>
+    </ul>
+
+    <h2 id="implementation-details"><a class="header-link" href="#implementation-details"><i class="fa fa-link"></i></a>Implementation Challenges</h2>
+
+    <p>There are mainly two challenges, and both of them are buried in the starter code. The one is related to line endings, and the other one has something to do with multiple client-server connections.</p>
+
+    <ul>
+      <li>
+        <p>For the first one about line endings, there are several screenshots to illustrate this issue. In these tests, we will send binary files made up only of "0x0a", known as line feed, which is line break on Unix, from cTCP client, to cTCP server and python simple server.</p>
+
+        <p>This is the result of sending from cTCP client to cTCP server:</p>
+        <img src="reports/lab4/001_crlf.PNG" class="img-fluid" alt="Responsive image">
+        <img src="reports/lab4/002_crlf.PNG" class="img-fluid" alt="Responsive image">
+
+        <p>This is the result of sending from cTCP client to python simple server:</p>
+        <img src="reports/lab4/003_crlf.PNG" class="img-fluid" alt="Responsive image">
+        <img src="reports/lab4/004_crlf.PNG" class="img-fluid" alt="Responsive image">
+
+        <p>It is very clear that, when interoperating with python simple server, it adds a "0d" known as carriage return before the last "0a", and corrupts our binary file. This is evil, as it corrupts the image below:</p>
+        <img src="reports/lab4/005_crlf.PNG" class="img-fluid" alt="Responsive image">
+
+        <p>Notice the noise pixel. cTCP insert a 0d before 0a there and causes this noise. And every time you send this file at a threshold rate or higher, it corrupts the same pixel, as server recvs in a fixed rate (1024). Someone may say it is not cTCP's fault, as it might result from buggy newline munging of python's socket. But, notice the bytes tranferred in cases above. The former sent 512 bytes, while the latter delivered 513 bytes. That suggests that this bug is buried in cTCP. And without too much efforts, I mean this evil really took me two hours to find out (Initially I thought it was somewhere of my BBR implementation went wrong and corrupted my reliable delivery), these lines should be responsible for the bug (Buggy codes have been commented out):</p>
+        <img src="reports/lab4/006_crlf.PNG" class="img-fluid" alt="Responsive image">
+
+        <p>The very reason is that simple server will be classified into webserver, resulting cTCP starter code turning ending "0a" into "0d0a". Notice that, ending "0a" refers to the last byte of the buffer "buf". This mechanism is good when we interoperate with Google's webserver, but evil when we tranfering binary files to python simple server.</p>
+      </li>
+
+      <li>
+        <p>In terms of the other one, well, it is still not resolved:</p>
+        <img src="reports/lab4/009_RST.PNG" class="img-fluid" alt="Responsive image">
+
+        <p>This happens on dumbbell topo, while I try to initial multiple client-server connections on that topo. It is clear that, upon connection of h3 and h4, that connection of h1 and h2 lost. Notice the packets marked in red in wireshark. They are RST segments. Upon establishing a new connection, the existing client h1 will send so many RST segments to the existing server h2. It is very clear that, no logic in cTCP main file should be responsible. I believe this is not done by the existing client. It is done by the new client, by function "send_resets", correspond to "[INFO] Cleaning up old connections... done!". This function captures any "leftover" packets, and for every packet it will sends back a RST. This ends the existing client-server connection. Finally I found out the code to blame for:</p>
+        <img src="reports/lab4/008_RST.PNG" class="img-fluid" alt="Responsive image">
+
+        <p>Let's look at these codes. First of all, it is a loop, indicating that it will handle all "leftover" packets before connecting to the server. Then for every "leftover" packet it got, it sends back a RST segment, insisting that connections corresponding to these packets are down, are "old" connections. This triggers the issue stated here, as the so-called "leftover" packets, even include packets not for new client. ACKs from h2 to h1 are also included. This is proved by this test:</p>
+        <img src="reports/lab4/010_RST.PNG" class="img-fluid" alt="Responsive image">
+
+        <p>Notice that, "conf port" is the port this client is initialized on, and "this dport" is the destination port of "leftover" packets. "26411" is the network version of "11111", which is the port of client h1. That means, client h3, insists that ACKs from h2 to h1 on an alive connection, are "leftover", and what is more, h3 even pretend that he is h1, sending RST to h2! This is demon. To fix the issues and test fairness of BBR, I tried multiple times to modify these codes, but in vain. I think there is supposed to be a thorough inspection of how connections are established and why older connections are needed to take out, before issuing a fix to this. Tentative modifications are as follows:</p>
+
+        <ul>
+          <li>
+            <p>First of all, I tried to comment out the whole function body, which was useless, as the client h3 then would not connect to server h4, and there are packets indicating "re-used port" shown in wireshark. Reason to this behavior remains unknown to me.</p>
+          </li>
+
+          <li>
+            <p>Secondly, I tried to stop client h3 from sending RST to h2, which means I will filter out the packets not targeted at h3. But after doing this, the loop became a dead loop, ACKs are endless when h1 is sending to h2, and I think we need a outer filter outside this loop to prevent from this.</p>
+          </li>
+        </ul>
+
+        <p>Well, let's say, I did not manage to fix this issue, but I think I may make it in a few days as have to dive deep, and, the framework of logic flow may need to be altered. Besides, the ACKs' checksum corrpution issue also happened to my code.</p>
+      </li>
+    </ul>
+
+    <h2 id="testing-cases"><a class="header-link" href="#testing-cases"><i class="fa fa-link"></i></a>Testing</h2>
+
+    <p>This section includes some test cases and strategies to test and debug.</p>
+
+    <ul>
+      <li>
+        <p>Large File Test: Using an image file sized 4Mb named <code class="highlighter-rouge">a.jpg</code>. On simple topo and line topo, type <code class="highlighter-rouge">python simple_server.py 10.0.0.2 12345 e.jpg</code> into xterm h2 and then <code class="highlighter-rouge">sudo ./ctcp -c 10.0.0.2:12345 -p 11111 < a.jpg</code> into xterm h1. Files are identical while plots are as follows: (1Mbit/5ms)</p>
+        <img src="reports/lab4/012_res.PNG" class="img-fluid" alt="Responsive image">
+      </li>
+
+      <li>
+        <p>Large File Test(5Mbit/5ms):</p>
+        <img src="reports/lab4/013_res.PNG" class="img-fluid" alt="Responsive image">
+      </li>
+
+      <li>
+        <p>Large File Test(10Mbit/5ms):</p>
+        <img src="reports/lab4/011_res.PNG" class="img-fluid" alt="Responsive image">
+      </li>
+    </ul>
+
+    <p>Strategies: Full command of scientific constant. If an implementation has N features, we should come up with almost combination number of N different test cases to first test any single feature, and then test how good can they interoperate with each other. What is also important is that, during implementation, it will be good to use <code class="highlighter-rouge">#ifndef</code> to define macros logging debugging messages.</p>
+
+    <h2 id="testing-cases"><a class="header-link" href="#testing-cases"><i class="fa fa-link"></i></a>Remaining Bugs</h2>
+
+    <p>No remaining bugs in this implementation. Large files such as image file sized 4Mb or any other binary file including ctcp itself can be correctly transmitted.</p>
+
+  </section>
+
+  <footer>
+  </footer>
+
+
+
+        </article>
+      </div>
+    </div><!--/row-->
+  </div> <!-- /container -->
+
+  <hr>
+
+  <footer id="footer">
+    <p>Copyright © 2017, Yuchen Yan at yanyuche@usc.edu</p>
+  </footer>
+  <script src="./resources/jquery.min.js"></script>
+  <script src="./resources/bootstrap.min.js"></script>
+  <script src="./resources/site.js"></script>
+  <script>
+   (function(win, doc, script) {
+       
+   }(window, document, 'script'));
+  </script>
+
+</body>
+</html>
